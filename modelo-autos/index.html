@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VisionAI - Clasificador de Imágenes Inteligente</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    
+    <!-- TensorFlow.js y Teachable Machine Image Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'sans-serif'],
+                    },
+                    colors: {
+                        dark: {
+                            950: '#06080e',
+                            900: '#0b0f19',
+                            850: '#0f172a',
+                            800: '#141d2e',
+                            700: '#1e293b',
+                            600: '#334155'
+                        },
+                        brand: {
+                            400: '#818cf8',
+                            500: '#6366f1',
+                            600: '#4f46e5',
+                            700: '#4338ca'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #06080e;
+            color: #f1f5f9;
+        }
+        .ambient-glow {
+            position: fixed;
+            top: 25%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 650px;
+            height: 380px;
+            background: radial-gradient(circle, rgba(99, 102, 241, 0.16) 0%, rgba(14, 165, 233, 0.05) 50%, rgba(0, 0, 0, 0) 75%);
+            pointer-events: none;
+            z-index: 0;
+        }
+        #webcam-container canvas, #webcam-container video {
+            width: 100% !important;
+            height: 100% !important;
+            object-fit: cover;
+            transform: scaleX(-1);
+            border-radius: 1rem;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background-color: #334155;
+            border-radius: 9999px;
+        }
+        .drag-active {
+            border-color: #6366f1 !important;
+            background-color: rgba(99, 102, 241, 0.1) !important;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col justify-between relative overflow-x-hidden selection:bg-indigo-500 selection:text-white">
+
+    <div class="ambient-glow"></div>
+
+    <header class="relative z-10 w-full border-b border-gray-800/80 bg-dark-900/70 backdrop-blur-md sticky top-0 px-4 sm:px-8 py-3.5">
+        <div class="max-w-6xl mx-auto flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-cyan-400 flex items-center justify-center shadow-lg shadow-indigo-500/25 ring-1 ring-white/20">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="font-extrabold text-base sm:text-lg text-white tracking-tight flex items-center gap-2">
+                        VisionAI
+                        <span class="text-[10px] font-semibold tracking-wider uppercase px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Local Model</span>
+                    </h1>
+                    <p class="text-xs text-gray-400 font-medium">Teachable Machine &bull; TensorFlow.js</p>
+                </div>
+            </div>
+            
+            <div class="flex items-center gap-3">
+                <span id="status-badge" class="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-gray-800/90 text-gray-400 border border-gray-700/60 shadow-inner transition-colors duration-200">
+                    <span class="w-2 h-2 rounded-full bg-gray-500" id="status-dot"></span>
+                    <span id="status-text">Listo</span>
+                </span>
+            </div>
+        </div>
+    </header>
+
+    <main class="relative z-10 flex-grow max-w-6xl mx-auto w-full px-4 sm:px-6 py-6 sm:py-8">
+        
+        <!-- Encabezado de bienvenida -->
+        <div class="text-center max-w-2xl mx-auto mb-6">
+            <h2 class="text-2xl sm:text-4xl font-extrabold text-white tracking-tight mb-2 sm:mb-3">
+                Clasificación de Imágenes por IA
+            </h2>
+            <p class="text-gray-400 text-xs sm:text-sm leading-relaxed">
+                Ejecución 100% en tu navegador usando los pesos de <code class="text-indigo-400 font-mono text-xs bg-indigo-950/40 px-1.5 py-0.5 rounded border border-indigo-500/20">./mi_modelo/</code>. Sin subir fotos a servidores externos.
+            </p>
+        </div>
+
+        <!-- Selector de Modo (Tabs) -->
+        <div class="flex justify-center mb-6">
+            <div class="inline-flex p-1 rounded-xl bg-dark-800 border border-gray-800 shadow-lg">
+                <button id="tab-webcam" onclick="switchMode('webcam')" class="flex items-center gap-2 px-5 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 bg-indigo-600 text-white shadow-md shadow-indigo-600/30">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    <span>Cámara en Vivo</span>
+                </button>
+                <button id="tab-upload" onclick="switchMode('upload')" class="flex items-center gap-2 px-5 py-2 rounded-lg text-xs sm:text-sm font-semibold text-gray-400 hover:text-white transition-all duration-200">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    <span>Subir Imagen</span>
+                </button>
+            </div>
+        </div>
+
+        <!-- Banner de Error y Alertas -->
+        <div id="error-box" class="hidden max-w-xl mx-auto mb-6 p-4 rounded-xl bg-red-950/70 border border-red-500/40 text-red-200 text-sm flex items-start gap-3 backdrop-blur-md shadow-lg shadow-red-950/30">
+            <svg class="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            </svg>
+            <div class="flex-grow">
+                <h4 class="font-semibold text-red-300">Aviso del sistema</h4>
+                <p id="error-message" class="text-red-200/90 text-xs mt-1"></p>
+            </div>
+            <button onclick="document.getElementById('error-box').classList.add('hidden')" class="text-red-400 hover:text-white transition">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 sm:gap-8 items-start">
+            
+            <!-- Columna Izquierda: Visor Multimedia Interactivo -->
+            <div class="lg:col-span-7 flex flex-col items-center">
+                <div class="w-full relative aspect-square sm:aspect-[4/3] rounded-2xl bg-dark-900/90 border border-gray-800/90 p-2.5 shadow-2xl backdrop-blur-sm overflow-hidden flex flex-col justify-center items-center">
+                    
+                    <!-- 1. Visor de Cámara Placeholder -->
+                    <div id="camera-placeholder" class="flex flex-col items-center justify-center text-center p-6 transition-all duration-300">
+                        <div class="w-16 h-16 rounded-2xl bg-dark-800 border border-gray-700/60 flex items-center justify-center text-gray-400 mb-4 shadow-inner">
+                            <svg class="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                            </svg>
+                        </div>
+                        <h3 class="text-white font-semibold text-lg mb-1">Cámara en Espera</h3>
+                        <p class="text-gray-400 text-xs sm:text-sm max-w-xs mb-1">
+                            Haz clic en el botón de abajo para activar tu cámara web e iniciar la clasificación en vivo.
+                        </p>
+                    </div>
+
+                    <!-- 2. Área para Subir Imágenes (Drag and drop) -->
+                    <div id="upload-zone" class="hidden w-full h-full border-2 border-dashed border-gray-700 hover:border-indigo-500/70 rounded-xl transition-all duration-200 flex flex-col items-center justify-center p-6 text-center cursor-pointer group bg-dark-950/40" onclick="document.getElementById('file-input').click()">
+                        <div class="w-16 h-16 rounded-2xl bg-dark-800 group-hover:bg-indigo-950/40 border border-gray-700 group-hover:border-indigo-500/50 flex items-center justify-center text-gray-400 group-hover:text-indigo-300 mb-4 transition duration-200 shadow-inner">
+                            <svg class="w-8 h-8 transition-transform duration-200 group-hover:-translate-y-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                        </div>
+                        <h4 class="text-white font-semibold text-sm sm:text-base mb-1">Arrastra una imagen aquí</h4>
+                        <p class="text-gray-400 text-xs mb-3">o haz clic para explorar tus archivos</p>
+                        <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-mono text-gray-400 bg-dark-800 border border-gray-700/60">
+                            PNG, JPG, WEBP, JPEG
+                        </span>
+                        <input type="file" id="file-input" accept="image/*" class="hidden" onchange="handleFileSelect(event)">
+                    </div>
+
+                    <!-- 3. Previsualizador de Imagen Subida -->
+                    <div id="image-preview-wrapper" class="hidden w-full h-full relative flex items-center justify-center">
+                        <img id="image-preview" src="" alt="Previsualización" class="max-w-full max-h-full object-contain rounded-xl shadow-lg">
+                        <button onclick="clearUploadedImage()" class="absolute top-3 right-3 p-2 rounded-lg bg-dark-900/80 hover:bg-red-600 text-gray-300 hover:text-white border border-gray-700 hover:border-red-500 backdrop-blur-md transition shadow-lg" title="Eliminar imagen">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                            </svg>
+                        </button>
+                    </div>
+
+                    <!-- 4. Spinner de Carga -->
+                    <div id="camera-loader" class="hidden flex flex-col items-center justify-center gap-3">
+                        <div class="w-12 h-12 border-4 border-indigo-500/20 border-t-indigo-500 rounded-full animate-spin"></div>
+                        <span id="loader-text" class="text-xs sm:text-sm font-medium text-gray-300">Cargando modelo local y dependencias...</span>
+                    </div>
+
+                    <!-- 5. Contenedor de la Cámara de Teachable Machine -->
+                    <div id="webcam-container" class="w-full h-full rounded-xl overflow-hidden hidden flex items-center justify-center"></div>
+                </div>
+
+                <!-- Barra de Acciones y Controles Inferiores -->
+                <div class="mt-5 w-full flex flex-col sm:flex-row items-center justify-center gap-3">
+                    
+                    <!-- Botón Cámara -->
+                    <div id="webcam-controls" class="w-full sm:w-auto">
+                        <button id="toggle-btn" onclick="toggleWebcam()" class="w-full sm:w-auto flex items-center justify-center gap-2.5 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-600 text-white font-semibold px-7 py-3 rounded-xl shadow-lg shadow-indigo-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 text-sm">
+                            <svg id="btn-icon" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                            </svg>
+                            <span id="btn-label">Iniciar Cámara</span>
+                        </button>
+                    </div>
+
+                    <!-- Botón para Cambiar Imagen en Modo Subida -->
+                    <div id="upload-controls" class="hidden w-full sm:w-auto flex gap-2">
+                        <button onclick="document.getElementById('file-input').click()" class="w-full sm:w-auto flex items-center justify-center gap-2 bg-dark-800 hover:bg-dark-700 text-gray-200 border border-gray-700 font-semibold px-6 py-3 rounded-xl shadow-md hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 text-sm">
+                            <svg class="w-4 h-4 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                            </svg>
+                            <span>Seleccionar Otra Imagen</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Columna Derecha: Panel de Predicciones y Estadísticas -->
+            <div class="lg:col-span-5 bg-dark-900/90 rounded-2xl border border-gray-800/90 p-5 sm:p-6 backdrop-blur-sm shadow-xl flex flex-col gap-4">
+                <div class="flex items-center justify-between border-b border-gray-800/80 pb-3.5">
+                    <div>
+                        <h3 class="text-base sm:text-lg font-bold text-white tracking-wide">Resultados de Inferencia</h3>
+                        <p class="text-xs text-gray-400">Ordenado por nivel de certeza</p>
+                    </div>
+                    <span id="prediction-count" class="text-xs font-semibold px-2.5 py-1 bg-dark-800 border border-gray-700 text-indigo-300 rounded-lg shadow-inner">
+                        0 Clases
+                    </span>
+                </div>
+
+                <!-- Lista Dinámica de Predicciones con Barras de Porcentaje -->
+                <div id="predictions-list" class="space-y-3 max-h-[380px] overflow-y-auto pr-1 custom-scrollbar">
+                    <div class="text-center py-14 text-gray-500 text-xs sm:text-sm flex flex-col items-center gap-2">
+                        <svg class="w-8 h-8 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                        </svg>
+                        <span>Sin inferencias activas.<br>Inicia la cámara o sube una imagen.</span>
+                    </div>
+                </div>
+
+                <!-- Información del entorno local -->
+                <div class="mt-1 p-3 rounded-xl bg-dark-950/80 border border-gray-800/80 text-xs text-gray-400 flex items-center justify-between">
+                    <span class="flex items-center gap-2">
+                        <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                        Origen: <code class="text-gray-300 font-mono">./mi_modelo/</code>
+                    </span>
+                    <span class="text-gray-500 font-mono text-[11px]">TFJS + TM Image</span>
+                </div>
+            </div>
+
+        </div>
+
+    </main>
+
+    <footer class="relative z-10 border-t border-gray-800/80 bg-dark-900/50 text-center py-4 text-xs text-gray-500">
+        <p>Aceleración por WebGL en cliente &bull; Compatible con GitHub Pages</p>
+    </footer>
+
+    <script>
+        const MODEL_URL = "./mi_modelo/model.json";
+        const METADATA_URL = "./mi_modelo/metadata.json";
+
+        let currentMode = 'webcam'; // 'webcam' | 'upload'
+        let model = null;
+        let webcam = null;
+        let maxPredictions = 0;
+        let isRunningWebcam = false;
+        let animationFrameId = null;
+
+        // Elementos UI
+        const tabWebcam = document.getElementById("tab-webcam");
+        const tabUpload = document.getElementById("tab-upload");
+        const cameraPlaceholder = document.getElementById("camera-placeholder");
+        const uploadZone = document.getElementById("upload-zone");
+        const imagePreviewWrapper = document.getElementById("image-preview-wrapper");
+        const imagePreview = document.getElementById("image-preview");
+        const cameraLoader = document.getElementById("camera-loader");
+        const loaderText = document.getElementById("loader-text");
+        const webcamContainer = document.getElementById("webcam-container");
+        const webcamControls = document.getElementById("webcam-controls");
+        const uploadControls = document.getElementById("upload-controls");
+        const toggleBtn = document.getElementById("toggle-btn");
+        const btnLabel = document.getElementById("btn-label");
+        const btnIcon = document.getElementById("btn-icon");
+        const predictionsList = document.getElementById("predictions-list");
+        const predictionCount = document.getElementById("prediction-count");
+        const statusBadge = document.getElementById("status-badge");
+        const statusDot = document.getElementById("status-dot");
+        const statusText = document.getElementById("status-text");
+        const errorBox = document.getElementById("error-box");
+        const errorMessage = document.getElementById("error-message");
+
+        function showError(msg) {
+            errorMessage.textContent = msg;
+            errorBox.classList.remove("hidden");
+        }
+
+        function setStatus(status, customText = '') {
+            if (status === 'active') {
+                statusDot.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
+                statusBadge.className = "inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-emerald-950/60 text-emerald-300 border border-emerald-500/30";
+                statusText.textContent = customText || "Clasificando";
+            } else if (status === 'loading') {
+                statusDot.className = "w-2 h-2 rounded-full bg-amber-400 animate-ping";
+                statusBadge.className = "inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-amber-950/60 text-amber-300 border border-amber-500/30";
+                statusText.textContent = customText || "Cargando";
+            } else {
+                statusDot.className = "w-2 h-2 rounded-full bg-gray-500";
+                statusBadge.className = "inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold bg-gray-800 text-gray-400 border border-gray-700/60";
+                statusText.textContent = customText || "Listo";
+            }
+        }
+
+        function switchMode(mode) {
+            if (currentMode === mode) return;
+            errorBox.classList.add("hidden");
+
+            // Si la cámara está encendida y cambiamos de modo, apagarla
+            if (isRunningWebcam) {
+                stopWebcam();
+            }
+
+            currentMode = mode;
+
+            if (mode === 'webcam') {
+                tabWebcam.className = "flex items-center gap-2 px-5 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 bg-indigo-600 text-white shadow-md shadow-indigo-600/30";
+                tabUpload.className = "flex items-center gap-2 px-5 py-2 rounded-lg text-xs sm:text-sm font-semibold text-gray-400 hover:text-white transition-all duration-200";
+                
+                uploadZone.classList.add("hidden");
+                imagePreviewWrapper.classList.add("hidden");
+                cameraPlaceholder.classList.remove("hidden");
+                webcamContainer.classList.add("hidden");
+                
+                webcamControls.classList.remove("hidden");
+                uploadControls.classList.add("hidden");
+                resetPredictionsView("Inicia la cámara para clasificar fotogramas en vivo.");
+            } else {
+                tabUpload.className = "flex items-center gap-2 px-5 py-2 rounded-lg text-xs sm:text-sm font-semibold transition-all duration-200 bg-indigo-600 text-white shadow-md shadow-indigo-600/30";
+                tabWebcam.className = "flex items-center gap-2 px-5 py-2 rounded-lg text-xs sm:text-sm font-semibold text-gray-400 hover:text-white transition-all duration-200";
+                
+                cameraPlaceholder.classList.add("hidden");
+                webcamContainer.classList.add("hidden");
+                
+                if (imagePreview.src && imagePreview.src !== "" && !imagePreview.src.endsWith(window.location.href)) {
+                    uploadZone.classList.add("hidden");
+                    imagePreviewWrapper.classList.remove("hidden");
+                    uploadControls.classList.remove("hidden");
+                } else {
+                    uploadZone.classList.remove("hidden");
+                    imagePreviewWrapper.classList.add("hidden");
+                    uploadControls.classList.add("hidden");
+                    resetPredictionsView("Sube o arrastra una imagen para ver la predicción.");
+                }
+
+                webcamControls.classList.add("hidden");
+            }
+        }
+
+        // Configuración de Drag & Drop para la zona de subida
+        ['dragenter', 'dragover'].forEach(eventName => {
+            uploadZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                uploadZone.classList.add('drag-active');
+            }, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            uploadZone.addEventListener(eventName, (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                uploadZone.classList.remove('drag-active');
+            }, false);
+        });
+
+        uploadZone.addEventListener('drop', (e) => {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            if (files.length > 0) {
+                processImageFile(files[0]);
+            }
+        });
+
+        function handleFileSelect(event) {
+            const files = event.target.files;
+            if (files && files.length > 0) {
+                processImageFile(files[0]);
+            }
+        }
+
+        async function ensureModelLoaded() {
+            if (!model) {
+                setStatus('loading', 'Cargando Modelo');
+                loaderText.textContent = "Cargando modelo local desde ./mi_modelo/...";
+                cameraLoader.classList.remove("hidden");
+                try {
+                    model = await tmImage.load(MODEL_URL, METADATA_URL);
+                    maxPredictions = model.getTotalClasses();
+                    predictionCount.textContent = `${maxPredictions} ${maxPredictions === 1 ? 'Clase' : 'Clases'}`;
+                } catch (error) {
+                    throw new Error("No se pudo cargar el modelo desde './mi_modelo/'. Verifica que los archivos model.json, metadata.json y weights.bin existan en esa ruta.");
+                } finally {
+                    cameraLoader.classList.add("hidden");
+                }
+            }
+            return model;
+        }
+
+        async function processImageFile(file) {
+            if (!file.type.startsWith('image/')) {
+                showError("Por favor selecciona un archivo de imagen válido (JPG, PNG, WEBP).");
+                return;
+            }
+
+            errorBox.classList.add("hidden");
+            try {
+                await ensureModelLoaded();
+
+                const reader = new FileReader();
+                reader.onload = async (e) => {
+                    imagePreview.src = e.target.result;
+                    uploadZone.classList.add("hidden");
+                    imagePreviewWrapper.classList.remove("hidden");
+                    uploadControls.classList.remove("hidden");
+
+                    // Esperar a que la imagen se renderice completamente en memoria
+                    imagePreview.onload = async () => {
+                        setStatus('active', 'Analizando');
+                        const rawPredictions = await model.predict(imagePreview);
+                        renderPredictions(rawPredictions);
+                        setStatus('active', 'Predicción lista');
+                    };
+                };
+                reader.readAsDataURL(file);
+
+            } catch (err) {
+                console.error(err);
+                showError(err.message || "Error al procesar y clasificar la imagen subida.");
+                setStatus('idle');
+            }
+        }
+
+        function clearUploadedImage() {
+            imagePreview.src = "";
+            document.getElementById('file-input').value = "";
+            imagePreviewWrapper.classList.add("hidden");
+            uploadControls.classList.add("hidden");
+            uploadZone.classList.remove("hidden");
+            resetPredictionsView("Sube o arrastra una imagen para ver la predicción.");
+            setStatus('idle');
+        }
+
+        async function toggleWebcam() {
+            if (isRunningWebcam) {
+                stopWebcam();
+            } else {
+                startWebcam();
+            }
+        }
+
+        async function startWebcam() {
+            errorBox.classList.add("hidden");
+            cameraPlaceholder.classList.add("hidden");
+            cameraLoader.classList.remove("hidden");
+            loaderText.textContent = "Iniciando cámara y cargando modelo...";
+            toggleBtn.disabled = true;
+            toggleBtn.classList.add("opacity-70", "cursor-not-allowed");
+
+            try {
+                await ensureModelLoaded();
+
+                const flip = true; 
+                webcam = new tmImage.Webcam(420, 420, flip);
+                
+                await webcam.setup(); // Solicita permisos al navegador
+                await webcam.play();
+                
+                webcamContainer.innerHTML = '';
+                webcamContainer.appendChild(webcam.canvas);
+                webcamContainer.classList.remove("hidden");
+                cameraLoader.classList.add("hidden");
+
+                isRunningWebcam = true;
+                setStatus('active', 'En Vivo');
+
+                btnLabel.textContent = "Detener Cámara";
+                btnIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" />`;
+                toggleBtn.className = "w-full sm:w-auto flex items-center justify-center gap-2.5 bg-red-600/90 hover:bg-red-600 text-white font-semibold px-7 py-3 rounded-xl shadow-lg shadow-red-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 text-sm";
+
+                loopWebcam();
+
+            } catch (err) {
+                console.error(err);
+                let message = "No se pudo acceder a la cámara o cargar los archivos de './mi_modelo/'.";
+                if (err.name === "NotAllowedError" || (err.message && err.message.includes("Permission denied"))) {
+                    message = "Permiso denegado: Otorga acceso a la cámara en los permisos de tu navegador.";
+                } else if (err.message) {
+                    message = err.message;
+                }
+                showError(message);
+                stopWebcam();
+            } finally {
+                toggleBtn.disabled = false;
+                toggleBtn.classList.remove("opacity-70", "cursor-not-allowed");
+            }
+        }
+
+        function stopWebcam() {
+            isRunningWebcam = false;
+            if (animationFrameId) {
+                cancelAnimationFrame(animationFrameId);
+            }
+            if (webcam) {
+                webcam.stop();
+            }
+
+            webcamContainer.classList.add("hidden");
+            cameraLoader.classList.add("hidden");
+            cameraPlaceholder.classList.remove("hidden");
+
+            setStatus('idle');
+            btnLabel.textContent = "Iniciar Cámara";
+            btnIcon.innerHTML = `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />`;
+            toggleBtn.className = "w-full sm:w-auto flex items-center justify-center gap-2.5 bg-gradient-to-r from-indigo-600 to-indigo-500 hover:from-indigo-500 hover:to-indigo-600 text-white font-semibold px-7 py-3 rounded-xl shadow-lg shadow-indigo-600/30 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200 text-sm";
+
+            resetPredictionsView("No hay inferencias activas. Enciende la cámara para analizar fotogramas.");
+        }
+
+        async function loopWebcam() {
+            if (!isRunningWebcam) return;
+            webcam.update();
+            if (model && webcam.canvas) {
+                const rawPredictions = await model.predict(webcam.canvas);
+                renderPredictions(rawPredictions);
+            }
+            animationFrameId = window.requestAnimationFrame(loopWebcam);
+        }
+
+        function renderPredictions(rawPredictions) {
+            // Ordenar predicciones de mayor a menor certidumbre
+            const sorted = [...rawPredictions].sort((a, b) => b.probability - a.probability);
+
+            let html = "";
+            sorted.forEach((p, idx) => {
+                const percent = (p.probability * 100).toFixed(1);
+                const isTop = idx === 0 && p.probability >= 0.25;
+
+                const cardStyle = isTop 
+                    ? "bg-dark-850/95 border border-indigo-500/50 p-3.5 rounded-xl shadow-lg shadow-indigo-600/10 ring-1 ring-indigo-500/30" 
+                    : "p-3 rounded-xl bg-dark-950/60 border border-gray-800/70";
+
+                const barGradient = isTop
+                    ? "bg-gradient-to-r from-indigo-500 via-indigo-400 to-cyan-400"
+                    : "bg-gray-600";
+
+                const titleStyle = isTop
+                    ? "text-white font-bold flex items-center gap-2 text-sm sm:text-base"
+                    : "text-gray-300 font-medium text-xs sm:text-sm truncate";
+
+                html += `
+                    <div class="${cardStyle} transition-all duration-150">
+                        <div class="flex justify-between items-center mb-1.5">
+                            <span class="${titleStyle}">
+                                ${isTop ? '<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold uppercase bg-indigo-500/30 text-indigo-300 border border-indigo-500/40">Top Match</span>' : ''}
+                                <span class="truncate">${p.className}</span>
+                            </span>
+                            <span class="font-mono text-xs sm:text-sm font-semibold ${isTop ? 'text-indigo-300 font-bold' : 'text-gray-400'}">
+                                ${percent}%
+                            </span>
+                        </div>
+                        <div class="w-full bg-gray-800/90 rounded-full h-2.5 overflow-hidden">
+                            <div class="${barGradient} h-2.5 rounded-full transition-all duration-150 ease-out" style="width: ${percent}%"></div>
+                        </div>
+                    </div>
+                `;
+            });
+
+            predictionsList.innerHTML = html;
+        }
+
+        function resetPredictionsView(message) {
+            predictionsList.innerHTML = `
+                <div class="text-center py-14 text-gray-500 text-xs sm:text-sm flex flex-col items-center gap-2">
+                    <svg class="w-8 h-8 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
+                    </svg>
+                    <span>${message}</span>
+                </div>
+            `;
+        }
+    </script>
+</body>
+</html>
